@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "Close Tab Group Shortcut",
+  "name": "Tab Group Improvements",
   "version": "1.0",
-  "description": "Closes the current tab group using Ctrl+Shift+Space.",
+  "description": "Shortcut to collapse tab group and open tabs in current tab group.",
   "permissions": [
     "tabs",
-    "tabGroups"
+    "tabGroups",
+    "storage"
   ],
   "background": {
     "service_worker": "background.js"
