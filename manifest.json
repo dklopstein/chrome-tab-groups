@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Close Tab Group Shortcut",
+  "version": "1.0",
+  "description": "Closes the current tab group using Ctrl+Shift+Space.",
+  "permissions": [
+    "tabs",
+    "tabGroups"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  },
+  "commands": {
+    "close-tab-group": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Space",
+        "mac": "Command+Shift+Space"
+      },
+      "description": "Close current tab group"
+    }
+  }
+}
