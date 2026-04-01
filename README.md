@@ -1,4 +1,4 @@
-# Tab Group Toggle Shortcut
+# Chrome Tab Group Improvements
 
 A lightweight, sleep-proof Chrome extension that allows you to instantly collapse and expand your current tab group using a keyboard shortcut, while also smartly managing new tabs.
 
