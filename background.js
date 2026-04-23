@@ -75,3 +75,26 @@ chrome.commands.onCommand.addListener((command) => {
     });
   }
 });
+
+// 4. Update icon when enabled/disabled
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.autoGroupEnabled) {
+    const enabled = changes.autoGroupEnabled.newValue;
+    if (enabled) {
+      chrome.action.setIcon({ path: "icon.png" });
+    } else {
+      chrome.storage.local.get(['grayIconData'], (result) => {
+        if (result.grayIconData) {
+          chrome.action.setIcon({ path: result.grayIconData });
+        }
+      });
+    }
+  }
+});
+
+// Initialize icon on startup
+chrome.storage.local.get(['autoGroupEnabled', 'grayIconData'], (result) => {
+  if (result.autoGroupEnabled === false && result.grayIconData) {
+    chrome.action.setIcon({ path: result.grayIconData });
+  }
+});
