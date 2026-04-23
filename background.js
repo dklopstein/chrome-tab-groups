@@ -1,44 +1,66 @@
-// 1. Remember your active group, window, AND the last specific tab
+// 1. Remember the active group per window
 chrome.tabs.onActivated.addListener((info) => {
   chrome.tabs.get(info.tabId, (tab) => {
-    chrome.storage.session.get(["groupTabs"], (data) => {
+    chrome.storage.session.get(["activeGroups", "groupTabs"], (data) => {
+      let activeGroups = data.activeGroups || {};
       let groupTabs = data.groupTabs || {};
       
+      // Only update the active group for this window if the tab actually belongs to one
+      // This makes the grouping "sticky" and avoids race conditions with new tabs
       if (tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
+        activeGroups[tab.windowId] = tab.groupId;
         groupTabs[tab.groupId] = tab.id;
       }
       
       chrome.storage.session.set({ 
-        activeGroupId: tab.groupId,
-        activeWindowId: tab.windowId, // <-- We are now tracking your active window
+        activeGroups: activeGroups,
         groupTabs: groupTabs 
       });
     });
   });
 });
 
-// 2. Snap new tabs into your remembered group
+// 2. Snap new tabs into the window's active group
 chrome.tabs.onCreated.addListener((tab) => {
   if (tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) return;
 
   chrome.storage.local.get(["autoGroupEnabled"], (settings) => {
     if (settings.autoGroupEnabled === false) return;
 
-    chrome.storage.session.get(["activeGroupId", "activeWindowId"], (data) => {
-      let groupId = data.activeGroupId;
-      let activeWindowId = data.activeWindowId;
+    chrome.storage.session.get(["activeGroups"], (data) => {
+      let activeGroups = data.activeGroups || {};
+      let groupId = activeGroups[tab.windowId];
 
-      // Only group if the tab is created in the same window as the active group
-      if (groupId && groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE && tab.windowId === activeWindowId) {
-        setTimeout(() => {
-          chrome.tabs.group({ tabIds: tab.id, groupId: groupId });
-        }, 50);
+      if (groupId) {
+        // Verify the group still exists before trying to join it
+        chrome.tabGroups.get(groupId, (group) => {
+          if (chrome.runtime.lastError) return;
+          
+          setTimeout(() => {
+            chrome.tabs.group({ tabIds: tab.id, groupId: groupId });
+          }, 50);
+        });
       }
     });
   });
 });
 
-// 3. The Toggle Shortcut (Collapse OR Expand)
+// 3. Clear active group memory when a group is closed
+chrome.tabGroups.onRemoved.addListener((group) => {
+  chrome.storage.session.get(["activeGroups"], (data) => {
+    let activeGroups = data.activeGroups || {};
+    let changed = false;
+    for (let windowId in activeGroups) {
+      if (activeGroups[windowId] === group.id) {
+        delete activeGroups[windowId];
+        changed = true;
+      }
+    }
+    if (changed) chrome.storage.session.set({ activeGroups });
+  });
+});
+
+// 4. The Toggle Shortcut (Collapse OR Expand)
 chrome.commands.onCommand.addListener((command) => {
   if (command === "close-tab-group") {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -76,7 +98,7 @@ chrome.commands.onCommand.addListener((command) => {
   }
 });
 
-// 4. Update icon when enabled/disabled
+// 5. Update icon when enabled/disabled
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.autoGroupEnabled) {
     const enabled = changes.autoGroupEnabled.newValue;
