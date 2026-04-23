@@ -25,20 +25,10 @@ chrome.tabs.onCreated.addListener((tab) => {
     let groupId = data.activeGroupId;
     let activeWindowId = data.activeWindowId;
 
-    if (groupId && groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
+    // Only group if the tab is created in the same window as the active group
+    if (groupId && groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE && tab.windowId === activeWindowId) {
       setTimeout(() => {
-        // Pull the tab into the group (this automatically moves it across windows if needed)
-        chrome.tabs.group({ tabIds: tab.id, groupId: groupId }, () => {
-          
-          // Detect if it was a popup/new window by checking if the origin window IDs match
-          if (activeWindowId && tab.windowId !== activeWindowId) {
-            // Force focus onto the newly moved tab
-            chrome.tabs.update(tab.id, { active: true });
-            
-            // Bring your main window to the front just in case the popup stole system focus
-            chrome.windows.update(activeWindowId, { focused: true });
-          }
-        });
+        chrome.tabs.group({ tabIds: tab.id, groupId: groupId });
       }, 50);
     }
   });
