@@ -1,15 +1,23 @@
+// Track tabs that were just created to avoid race conditions with onActivated
+const recentlyCreatedTabs = new Set();
+
 // 1. Remember the active group per window
 chrome.tabs.onActivated.addListener((info) => {
   chrome.tabs.get(info.tabId, (tab) => {
+    if (chrome.runtime.lastError || !tab) return;
+
     chrome.storage.session.get(["activeGroups", "groupTabs"], (data) => {
       let activeGroups = data.activeGroups || {};
       let groupTabs = data.groupTabs || {};
       
-      // Only update the active group for this window if the tab actually belongs to one
-      // This makes the grouping "sticky" and avoids race conditions with new tabs
       if (tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
+        // We switched to a grouped tab: make this the active group for the window
         activeGroups[tab.windowId] = tab.groupId;
         groupTabs[tab.groupId] = tab.id;
+      } else if (!recentlyCreatedTabs.has(tab.id)) {
+        // We switched to an existing ungrouped tab: clear the active group for this window
+        // But we DON'T clear it if the tab was JUST created (to avoid the race condition)
+        delete activeGroups[tab.windowId];
       }
       
       chrome.storage.session.set({ 
@@ -23,6 +31,10 @@ chrome.tabs.onActivated.addListener((info) => {
 // 2. Snap new tabs into the window's active group
 chrome.tabs.onCreated.addListener((tab) => {
   if (tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) return;
+
+  // Mark this tab as "just created" so onActivated doesn't clear the group immediately
+  recentlyCreatedTabs.add(tab.id);
+  setTimeout(() => recentlyCreatedTabs.delete(tab.id), 1000);
 
   chrome.storage.local.get(["autoGroupEnabled"], (settings) => {
     if (settings.autoGroupEnabled === false) return;
@@ -115,7 +127,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 // Initialize icon on startup
-chrome.storage.local.get(['autoGroupEnabled', 'grayIconData'], (result) => {
+chrome.storage.local.get(["autoGroupEnabled", "grayIconData"], (result) => {
   if (result.autoGroupEnabled === false && result.grayIconData) {
     chrome.action.setIcon({ path: result.grayIconData });
   }
