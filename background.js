@@ -21,16 +21,20 @@ chrome.tabs.onActivated.addListener((info) => {
 chrome.tabs.onCreated.addListener((tab) => {
   if (tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) return;
 
-  chrome.storage.session.get(["activeGroupId", "activeWindowId"], (data) => {
-    let groupId = data.activeGroupId;
-    let activeWindowId = data.activeWindowId;
+  chrome.storage.local.get(["autoGroupEnabled"], (settings) => {
+    if (settings.autoGroupEnabled === false) return;
 
-    // Only group if the tab is created in the same window as the active group
-    if (groupId && groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE && tab.windowId === activeWindowId) {
-      setTimeout(() => {
-        chrome.tabs.group({ tabIds: tab.id, groupId: groupId });
-      }, 50);
-    }
+    chrome.storage.session.get(["activeGroupId", "activeWindowId"], (data) => {
+      let groupId = data.activeGroupId;
+      let activeWindowId = data.activeWindowId;
+
+      // Only group if the tab is created in the same window as the active group
+      if (groupId && groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE && tab.windowId === activeWindowId) {
+        setTimeout(() => {
+          chrome.tabs.group({ tabIds: tab.id, groupId: groupId });
+        }, 50);
+      }
+    });
   });
 });
 
