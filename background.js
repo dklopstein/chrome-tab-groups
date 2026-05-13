@@ -80,15 +80,32 @@ chrome.commands.onCommand.addListener((command) => {
       let groupId = currentTab?.groupId;
       
       if (groupId && groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
+        // Collapsing the current group
         chrome.tabGroups.update(groupId, { collapsed: true });
         chrome.storage.session.set({ lastCollapsedGroupId: groupId });
         
+        // Clear the active group for this window so new tabs don't auto-group into the collapsed one
+        chrome.storage.session.get(["activeGroups"], (data) => {
+          let activeGroups = data.activeGroups || {};
+          if (activeGroups[currentTab.windowId] === groupId) {
+            delete activeGroups[currentTab.windowId];
+            chrome.storage.session.set({ activeGroups });
+          }
+        });
+
         chrome.tabs.query({ currentWindow: true }, (allTabs) => {
-          let nextTab = allTabs.find(t => t.groupId !== groupId);
-          if (nextTab) chrome.tabs.update(nextTab.id, { active: true });
+          // Find an ungrouped tab
+          let ungroupedTab = allTabs.find(t => t.groupId === chrome.tabGroups.TAB_GROUP_ID_NONE);
+          if (ungroupedTab) {
+            chrome.tabs.update(ungroupedTab.id, { active: true });
+          } else {
+            // No ungrouped tabs exist, create a new one
+            chrome.tabs.create({ active: true });
+          }
         });
       } 
       else {
+        // Expanding the last collapsed group
         chrome.storage.session.get(["lastCollapsedGroupId", "groupTabs"], (data) => {
           let targetGroup = data.lastCollapsedGroupId;
           let groupTabs = data.groupTabs || {};
