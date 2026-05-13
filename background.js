@@ -6,23 +6,27 @@ chrome.tabs.onActivated.addListener((info) => {
   chrome.tabs.get(info.tabId, (tab) => {
     if (chrome.runtime.lastError || !tab) return;
 
-    chrome.storage.session.get(["activeGroups", "groupTabs"], (data) => {
-      let activeGroups = data.activeGroups || {};
-      let groupTabs = data.groupTabs || {};
-      
-      if (tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
-        // We switched to a grouped tab: make this the active group for the window
-        activeGroups[tab.windowId] = tab.groupId;
-        groupTabs[tab.groupId] = tab.id;
-      } else if (!recentlyCreatedTabs.has(tab.id)) {
-        // We switched to an existing ungrouped tab: clear the active group for this window
-        // But we DON'T clear it if the tab was JUST created (to avoid the race condition)
-        delete activeGroups[tab.windowId];
-      }
-      
-      chrome.storage.session.set({ 
-        activeGroups: activeGroups,
-        groupTabs: groupTabs 
+    // activeGroups: transient, window-specific -> session storage
+    // groupTabs: mapping of group IDs to last active tab -> local storage for persistence
+    chrome.storage.session.get(["activeGroups"], (sessionData) => {
+      chrome.storage.local.get(["groupTabs"], (localData) => {
+        let activeGroups = sessionData.activeGroups || {};
+        let groupTabs = localData.groupTabs || {};
+        
+        if (tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
+          // We switched to a grouped tab: make this the active group for the window
+          activeGroups[tab.windowId] = tab.groupId;
+          groupTabs[tab.groupId] = tab.id;
+          
+          chrome.storage.session.set({ activeGroups });
+          chrome.storage.local.set({ groupTabs });
+        } else if (!recentlyCreatedTabs.has(tab.id)) {
+          // We switched to an existing ungrouped tab: clear the active group for this window
+          if (activeGroups[tab.windowId]) {
+            delete activeGroups[tab.windowId];
+            chrome.storage.session.set({ activeGroups });
+          }
+        }
       });
     });
   });
@@ -59,8 +63,8 @@ chrome.tabs.onCreated.addListener((tab) => {
 
 // 3. Clear active group memory when a group is closed
 chrome.tabGroups.onRemoved.addListener((group) => {
-  chrome.storage.session.get(["activeGroups"], (data) => {
-    let activeGroups = data.activeGroups || {};
+  chrome.storage.session.get(["activeGroups"], (sessionData) => {
+    let activeGroups = sessionData.activeGroups || {};
     let changed = false;
     for (let windowId in activeGroups) {
       if (activeGroups[windowId] === group.id) {
@@ -69,6 +73,26 @@ chrome.tabGroups.onRemoved.addListener((group) => {
       }
     }
     if (changed) chrome.storage.session.set({ activeGroups });
+  });
+
+  // Also clean up groupTabs in local storage
+  chrome.storage.local.get(["groupTabs", "lastCollapsedGroupId"], (localData) => {
+    let groupTabs = localData.groupTabs || {};
+    let lastCollapsedGroupId = localData.lastCollapsedGroupId;
+    let localChanged = false;
+
+    if (groupTabs[group.id]) {
+      delete groupTabs[group.id];
+      localChanged = true;
+    }
+    if (lastCollapsedGroupId === group.id) {
+      lastCollapsedGroupId = null;
+      localChanged = true;
+    }
+
+    if (localChanged) {
+      chrome.storage.local.set({ groupTabs, lastCollapsedGroupId });
+    }
   });
 });
 
@@ -82,7 +106,8 @@ chrome.commands.onCommand.addListener((command) => {
       if (groupId && groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
         // Collapsing the current group
         chrome.tabGroups.update(groupId, { collapsed: true });
-        chrome.storage.session.set({ lastCollapsedGroupId: groupId });
+        // Use local storage for lastCollapsedGroupId so it survives service worker suspension
+        chrome.storage.local.set({ lastCollapsedGroupId: groupId });
         
         // Clear the active group for this window so new tabs don't auto-group into the collapsed one
         chrome.storage.session.get(["activeGroups"], (data) => {
@@ -106,7 +131,8 @@ chrome.commands.onCommand.addListener((command) => {
       } 
       else {
         // Expanding the last collapsed group
-        chrome.storage.session.get(["lastCollapsedGroupId", "groupTabs"], (data) => {
+        // Get from local storage for persistence
+        chrome.storage.local.get(["lastCollapsedGroupId", "groupTabs"], (data) => {
           let targetGroup = data.lastCollapsedGroupId;
           let groupTabs = data.groupTabs || {};
           
