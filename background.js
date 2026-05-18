@@ -1,5 +1,7 @@
 // Track tabs that were just created to avoid race conditions with onActivated
 const recentlyCreatedTabs = new Set();
+let creationBatchCount = 0;
+let creationBatchTimer = null;
 
 // 1. Remember the active group per window
 chrome.tabs.onActivated.addListener((info) => {
@@ -40,22 +42,38 @@ chrome.tabs.onCreated.addListener((tab) => {
   recentlyCreatedTabs.add(tab.id);
   setTimeout(() => recentlyCreatedTabs.delete(tab.id), 1000);
 
+  // Batch detection: if many tabs are created in a short burst, don't auto-group
+  // (e.g. opening a bookmark folder)
+  creationBatchCount++;
+  if (creationBatchTimer) clearTimeout(creationBatchTimer);
+  creationBatchTimer = setTimeout(() => { creationBatchCount = 0; }, 300);
+
   chrome.storage.local.get(["autoGroupEnabled"], (settings) => {
     if (settings.autoGroupEnabled === false) return;
 
     chrome.storage.session.get(["activeGroups"], (data) => {
       let activeGroups = data.activeGroups || {};
-      let groupId = activeGroups[tab.windowId];
+      let targetGroupId = activeGroups[tab.windowId];
 
-      if (groupId) {
-        // Verify the group still exists before trying to join it
-        chrome.tabGroups.get(groupId, (group) => {
-          if (chrome.runtime.lastError) return;
-          
-          setTimeout(() => {
-            chrome.tabs.group({ tabIds: tab.id, groupId: groupId });
-          }, 50);
-        });
+      if (targetGroupId) {
+        // We wait a bit to see if this is part of a batch or if Chrome will group it (Saved Tab Groups)
+        setTimeout(() => {
+          if (creationBatchCount > 3) return;
+
+          chrome.tabs.get(tab.id, (currentTab) => {
+            if (chrome.runtime.lastError || !currentTab) return;
+            
+            // If it's already in a group (like a Saved Tab Group), don't move it
+            if (currentTab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) return;
+
+            // Verify the target group still exists before trying to join it
+            chrome.tabGroups.get(targetGroupId, (group) => {
+              if (chrome.runtime.lastError || !group) return;
+              
+              chrome.tabs.group({ tabIds: tab.id, groupId: targetGroupId });
+            });
+          });
+        }, 200);
       }
     });
   });
